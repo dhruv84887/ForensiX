@@ -21,6 +21,16 @@ const allowedOrigins = new Set(
     .map((origin) => origin.trim())
     .filter(Boolean),
 );
+function isSameOriginRequest(req, origin) {
+  try {
+    const parsedOrigin = new URL(origin);
+    const forwardedProtocol = req.get("x-forwarded-proto")?.split(",")[0].trim();
+    const requestProtocol = forwardedProtocol || req.protocol;
+    return parsedOrigin.host === req.get("host") && parsedOrigin.protocol === `${requestProtocol}:`;
+  } catch {
+    return false;
+  }
+}
 const SESSION_COOKIE = "forensix_session";
 const SESSION_DURATION = 12 * 60 * 60 * 1000;
 const REMEMBERED_SESSION_DURATION = 30 * 24 * 60 * 60 * 1000;
@@ -34,13 +44,13 @@ const DEMO_FILES = [
   { name: "family_video.mp4", type: "video", size: "18.6 MB", confidence: 91 },
 ];
 
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.has(origin)) return callback(null, true);
-    return callback(new Error("This origin is not allowed to access the API."));
-  },
-  credentials: true,
-}));
+app.use((req, res, next) => {
+  const origin = req.get("origin");
+  if (origin && !allowedOrigins.has(origin) && !isSameOriginRequest(req, origin)) {
+    return next(new Error("This origin is not allowed to access the API."));
+  }
+  return cors({ origin: origin || false, credentials: true })(req, res, next);
+});
 app.use(express.json({ limit: "32kb" }));
 
 const publicUser = (account) => ({ id: account.id, name: account.name, email: account.email });
@@ -373,6 +383,17 @@ app.post("/api/erase", (req, res) => {
     message: "Erasure simulation completed. No data was deleted.",
   });
 });
+
+if (process.env.NODE_ENV === "production") {
+  const frontendDirectory = path.resolve(__dirname, "..", "dist");
+  app.use(express.static(frontendDirectory));
+  app.use((req, res, next) => {
+    if (req.method !== "GET" || req.path.startsWith("/api/")) return next();
+    return res.sendFile(path.join(frontendDirectory, "index.html"), (error) => {
+      if (error) next(error);
+    });
+  });
+}
 
 app.use((error, _req, res, _next) => {
   if (error instanceof SyntaxError && "body" in error) {

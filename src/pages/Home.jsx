@@ -1,12 +1,49 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import "../index.css";
+import "./ExperienceMotion.css";
 import jsPDF from "jspdf";
 import { apiRequest } from "../api";
 
+function AnimatedMetric({ value }) {
+  const [displayValue, setDisplayValue] = useState(value);
+  const displayedValue = useRef(value);
+  const shouldAnimate = typeof value === "number"
+    && Number.isFinite(value)
+    && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  useEffect(() => {
+    if (!shouldAnimate) {
+      displayedValue.current = value;
+      return undefined;
+    }
+
+    const from = Number(displayedValue.current);
+    const to = value;
+    if (from === to) return undefined;
+
+    let frameId = 0;
+    let startedAt = 0;
+    const animate = (timestamp) => {
+      if (!startedAt) startedAt = timestamp;
+      const progress = Math.min(1, (timestamp - startedAt) / 520);
+      const easedProgress = 1 - ((1 - progress) ** 3);
+      const nextValue = Math.round(from + ((to - from) * easedProgress));
+      displayedValue.current = nextValue;
+      setDisplayValue(nextValue);
+      if (progress < 1) frameId = window.requestAnimationFrame(animate);
+    };
+
+    frameId = window.requestAnimationFrame(animate);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [value, shouldAnimate]);
+
+  return <span className="motion-metric-value">{shouldAnimate ? displayValue : value}</span>;
+}
 
 function Home({ onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [currentSection, setCurrentSection] = useState("");
+  const homeRef = useRef(null);
 
   const scrollToSection = (sectionId) => {
     setMenuOpen(false);
@@ -21,6 +58,54 @@ function Home({ onLogout }) {
     event.preventDefault();
     scrollToSection(sectionId);
   };
+
+  // Keep the slim reading-progress indicator in sync without rerendering on every scroll.
+  useEffect(() => {
+    const home = homeRef.current;
+    if (!home) return undefined;
+
+    let frameId = 0;
+    const updateProgress = () => {
+      frameId = 0;
+      const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = scrollableHeight > 0 ? Math.min(1, Math.max(0, window.scrollY / scrollableHeight)) : 0;
+      home.style.setProperty("--page-scroll-progress", String(progress));
+    };
+    const scheduleUpdate = () => {
+      if (!frameId) frameId = window.requestAnimationFrame(updateProgress);
+    };
+
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    scheduleUpdate();
+    return () => {
+      window.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+      if (frameId) window.cancelAnimationFrame(frameId);
+    };
+  }, []);
+
+  // Highlight the destination currently passing through the page's reading line.
+  useEffect(() => {
+    const sectionIds = ["forensics", "workflow", "tools", "erasure", "recovery"];
+    const sections = sectionIds.map((id) => document.getElementById(id)).filter(Boolean);
+    if (!("IntersectionObserver" in window) || sections.length === 0) return undefined;
+
+    const visibleSections = new Map();
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) visibleSections.set(entry.target.id, entry.target.getBoundingClientRect().top);
+        else visibleSections.delete(entry.target.id);
+      });
+
+      const nearestSection = [...visibleSections.entries()]
+        .sort((left, right) => Math.abs(left[1] - window.innerHeight * 0.4) - Math.abs(right[1] - window.innerHeight * 0.4))[0];
+      if (nearestSection) setCurrentSection(nearestSection[0]);
+    }, { threshold: 0, rootMargin: "-35% 0px -55% 0px" });
+
+    sections.forEach((section) => observer.observe(section));
+    return () => observer.disconnect();
+  }, []);
 
 
   // Erasure State
@@ -65,14 +150,66 @@ function Home({ onLogout }) {
     setRecoveryOpen(true);
   };
 
-  // Single MouseMove Effect
+  // Keep the cursor glow and hero parallax off React's render cycle.
   useEffect(() => {
-    const handleMouseMove = (event) => {
-      setMousePosition({ x: event.clientX, y: event.clientY });
+    const home = homeRef.current;
+    const hero = home?.querySelector(".cosmic-hero");
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    if (!home || !hero || reduceMotion || coarsePointer) return undefined;
+
+    let pointerPosition = null;
+    let frameId = 0;
+
+    const resetParallax = () => {
+      home.style.setProperty("--hero-planet-x", "0px");
+      home.style.setProperty("--hero-planet-y", "0px");
+      home.style.setProperty("--hero-ring-one-x", "0px");
+      home.style.setProperty("--hero-ring-one-y", "0px");
+      home.style.setProperty("--hero-ring-two-x", "0px");
+      home.style.setProperty("--hero-ring-two-y", "0px");
+      home.style.setProperty("--mouse-x", "-500px");
+      home.style.setProperty("--mouse-y", "-500px");
     };
 
-    window.addEventListener("mousemove", handleMouseMove);
-    return () => window.removeEventListener("mousemove", handleMouseMove);
+    const updateParallax = () => {
+      frameId = 0;
+      if (!pointerPosition) return;
+
+      const bounds = hero.getBoundingClientRect();
+      const relativeX = Math.max(-1, Math.min(1, ((pointerPosition.x - bounds.left) / bounds.width - 0.5) * 2));
+      const relativeY = Math.max(-1, Math.min(1, ((pointerPosition.y - bounds.top) / bounds.height - 0.5) * 2));
+
+      home.style.setProperty("--mouse-x", `${pointerPosition.x}px`);
+      home.style.setProperty("--mouse-y", `${pointerPosition.y}px`);
+      home.style.setProperty("--hero-planet-x", `${relativeX * 9}px`);
+      home.style.setProperty("--hero-planet-y", `${relativeY * 7}px`);
+      home.style.setProperty("--hero-ring-one-x", `${relativeX * -7}px`);
+      home.style.setProperty("--hero-ring-one-y", `${relativeY * -5}px`);
+      home.style.setProperty("--hero-ring-two-x", `${relativeX * 5}px`);
+      home.style.setProperty("--hero-ring-two-y", `${relativeY * 4}px`);
+    };
+
+    const handlePointerMove = (event) => {
+      if (event.pointerType === "touch") return;
+      pointerPosition = { x: event.clientX, y: event.clientY };
+      if (!frameId) frameId = window.requestAnimationFrame(updateParallax);
+    };
+
+    const handlePointerLeave = () => {
+      pointerPosition = null;
+      if (frameId) window.cancelAnimationFrame(frameId);
+      frameId = 0;
+      resetParallax();
+    };
+
+    home.addEventListener("pointermove", handlePointerMove, { passive: true });
+    home.addEventListener("pointerleave", handlePointerLeave, { passive: true });
+    return () => {
+      home.removeEventListener("pointermove", handlePointerMove);
+      home.removeEventListener("pointerleave", handlePointerLeave);
+      if (frameId) window.cancelAnimationFrame(frameId);
+    };
   }, []);
 
   useEffect(() => {
@@ -307,14 +444,8 @@ function Home({ onLogout }) {
   };
 
   return (
-    <main
-      id="home"
-      className="home"
-      style={{
-        "--mouse-x": `${mousePosition.x}px`,
-        "--mouse-y": `${mousePosition.y}px`,
-      }}
-    >
+    <main id="home" className="home" ref={homeRef}>
+      <div className="home-scroll-progress" aria-hidden="true" />
       <div className="blob blob-one"></div>
       <div className="blob blob-two"></div>
 
@@ -330,12 +461,12 @@ function Home({ onLogout }) {
         </button>
 
         <div className={`nav-links ${menuOpen ? "active" : ""}`}>
-          <a href="#forensics" onClick={(event) => navigateToSection(event, "forensics")}>Features</a>
-          <a href="#workflow" onClick={(event) => navigateToSection(event, "workflow")}>How It Works</a>
-          <a href="#tools" onClick={(event) => navigateToSection(event, "tools")}>Tools</a>
-          <a href="#erasure" onClick={(event) => navigateToSection(event, "erasure")}>Security</a>
-          <a href="#forensics" onClick={(event) => navigateToSection(event, "forensics")}>Forensics</a>
-          <a href="#recovery" className="nav-button" onClick={(event) => navigateToSection(event, "recovery")}>
+          <a href="#forensics" className={currentSection === "forensics" ? "is-current" : ""} aria-current={currentSection === "forensics" ? "location" : undefined} onClick={(event) => navigateToSection(event, "forensics")}>Features</a>
+          <a href="#workflow" className={currentSection === "workflow" ? "is-current" : ""} aria-current={currentSection === "workflow" ? "location" : undefined} onClick={(event) => navigateToSection(event, "workflow")}>How It Works</a>
+          <a href="#tools" className={currentSection === "tools" ? "is-current" : ""} aria-current={currentSection === "tools" ? "location" : undefined} onClick={(event) => navigateToSection(event, "tools")}>Tools</a>
+          <a href="#erasure" className={currentSection === "erasure" ? "is-current" : ""} aria-current={currentSection === "erasure" ? "location" : undefined} onClick={(event) => navigateToSection(event, "erasure")}>Security</a>
+          <a href="#forensics" className={currentSection === "forensics" ? "is-current" : ""} aria-current={currentSection === "forensics" ? "location" : undefined} onClick={(event) => navigateToSection(event, "forensics")}>Forensics</a>
+          <a href="#recovery" className={`nav-button ${currentSection === "recovery" ? "is-current" : ""}`} aria-current={currentSection === "recovery" ? "location" : undefined} onClick={(event) => navigateToSection(event, "recovery")}>
             Get Started →
           </a>
           <button className="nav-logout" type="button" onClick={onLogout}>
@@ -528,11 +659,11 @@ function Home({ onLogout }) {
             <div className="evidence-stats">
               <div>
                 <span>Evidence Files</span>
-                <strong>{recoverableFiles.length}</strong>
+                <strong><AnimatedMetric value={recoverableFiles.length} /></strong>
               </div>
               <div>
                 <span>Analyzed</span>
-                <strong>{recoveredFiles.length}</strong>
+                <strong><AnimatedMetric value={recoveredFiles.length} /></strong>
               </div>
               <div>
                 <span>Alerts</span>
@@ -702,11 +833,11 @@ function Home({ onLogout }) {
             <div className="recovery-progress">
               <div>
                 <span>Sample Files</span>
-                <strong>{recoverableFiles.length || 3}</strong>
+                <strong><AnimatedMetric value={recoverableFiles.length || 3} /></strong>
               </div>
               <div>
                 <span>Recoverable</span>
-                <strong>{recoverableFiles.length}</strong>
+                <strong><AnimatedMetric value={recoverableFiles.length} /></strong>
               </div>
             </div>
 
@@ -881,16 +1012,16 @@ function Home({ onLogout }) {
           <div className="footer-links">
             <div>
               <h4>Platform</h4>
-              <a href="#erasure">Data Erasure</a>
-              <a href="#recovery">File Recovery</a>
-              <a href="#forensics">Forensics</a>
+              <a href="#erasure" onClick={(event) => navigateToSection(event, "erasure")}>Data Erasure</a>
+              <a href="#recovery" onClick={(event) => navigateToSection(event, "recovery")}>File Recovery</a>
+              <a href="#forensics" onClick={(event) => navigateToSection(event, "forensics")}>Forensics</a>
             </div>
 
             <div>
               <h4>Company</h4>
-              <a href="#workflow">How It Works</a>
-              <a href="#tools">Tools</a>
-              <a href="#home">Home</a>
+              <a href="#workflow" onClick={(event) => navigateToSection(event, "workflow")}>How It Works</a>
+              <a href="#tools" onClick={(event) => navigateToSection(event, "tools")}>Tools</a>
+              <a href="#home" onClick={(event) => navigateToSection(event, "home")}>Home</a>
             </div>
           </div>
         </div>

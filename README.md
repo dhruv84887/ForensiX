@@ -21,6 +21,12 @@ If you prefer separate terminals, run `npm run backend` for the API and `npm run
 
 The app uses `http://localhost:5000` for its API by default. Set `VITE_API_BASE_URL` in a local `.env` file to point it at another API URL.
 
+## Deploy a demo preview to Render
+
+The root `render.yaml` defines one Node web service that builds the Vite app and serves it alongside the API. Frontend API requests use the same origin in production, so the session cookie stays first-party. The Blueprint is set to manual deploys; connect this GitHub repository in Render, select the Blueprint, review the service, then create it and trigger a deploy when ready.
+
+This is a prototype preview, not production account hosting. The free Render service sleeps when idle and has an ephemeral filesystem. Accounts stored in `backend/data/accounts.json` can be lost on restarts or redeploys, and in-memory sessions and case data reset when the server restarts. Keep this deployment for demo data only; persistent public accounts require a managed datastore and production identity setup.
+
 ## Prototype scope
 
 - Scan results are three fixed sample files. Case data is kept in server memory and is cleared when the backend restarts.

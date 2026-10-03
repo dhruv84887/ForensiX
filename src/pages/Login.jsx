@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./Login.css";
+import "./LoginMotion.css";
 import { apiRequest } from "../api";
 
 function Login({ onLoginSuccess }) {
@@ -7,6 +8,43 @@ function Login({ onLoginSuccess }) {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
+  const loginPageRef = useRef(null);
+
+  useEffect(() => {
+    const page = loginPageRef.current;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    if (!page || reduceMotion || coarsePointer) return undefined;
+
+    let pointerPosition = null;
+    let frameId = 0;
+    const updatePointerGlow = () => {
+      frameId = 0;
+      if (!pointerPosition) return;
+      const x = Math.max(0, Math.min(100, (pointerPosition.x / window.innerWidth) * 100));
+      const y = Math.max(0, Math.min(100, (pointerPosition.y / window.innerHeight) * 100));
+      page.style.setProperty("--auth-light-x", `${x}%`);
+      page.style.setProperty("--auth-light-y", `${y}%`);
+    };
+    const handlePointerMove = (event) => {
+      if (event.pointerType === "touch") return;
+      pointerPosition = { x: event.clientX, y: event.clientY };
+      if (!frameId) frameId = window.requestAnimationFrame(updatePointerGlow);
+    };
+    const handlePointerLeave = () => {
+      pointerPosition = null;
+      page.style.setProperty("--auth-light-x", "72%");
+      page.style.setProperty("--auth-light-y", "28%");
+    };
+
+    page.addEventListener("pointermove", handlePointerMove, { passive: true });
+    page.addEventListener("pointerleave", handlePointerLeave, { passive: true });
+    return () => {
+      page.removeEventListener("pointermove", handlePointerMove);
+      page.removeEventListener("pointerleave", handlePointerLeave);
+      if (frameId) window.cancelAnimationFrame(frameId);
+    };
+  }, []);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -33,7 +71,7 @@ function Login({ onLoginSuccess }) {
   };
 
   return (
-    <div className="login-page">
+    <div className="login-page" ref={loginPageRef}>
 
       {/* Header */}
 
@@ -43,7 +81,7 @@ function Login({ onLoginSuccess }) {
           <span>Forensi<span>X</span></span>
         </button>
 
-        <div className="login-header-actions" role="group" aria-label="Login or register">
+        <div className={`login-header-actions ${isCreateMode ? "register-mode" : ""}`} role="group" aria-label="Login or register">
           <button
             className={`login-header-button ${!isCreateMode ? "active" : ""}`}
             type="button"
@@ -71,7 +109,7 @@ function Login({ onLoginSuccess }) {
 
         <section className="auth-panel">
 
-          <div className="auth-heading">
+          <div className={`auth-heading ${isCreateMode ? "auth-mode-register" : "auth-mode-login"}`}>
 
             <div className="protected-label">
               <span></span>
@@ -92,7 +130,7 @@ function Login({ onLoginSuccess }) {
 
           </div>
 
-          <form onSubmit={handleSubmit}>
+          <form className={isCreateMode ? "auth-mode-register" : "auth-mode-login"} onSubmit={handleSubmit}>
 
             {authMessage && <p className="operation-error" role="status">{authMessage}</p>}
 

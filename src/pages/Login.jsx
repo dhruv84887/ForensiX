@@ -252,40 +252,8 @@ function Login({ onLoginSuccess }) {
 
           </form>
 
-          {/* Divider */}
-
-          <div className="continue-divider">
-            <span></span>
-            <p>or continue with</p>
-            <span></span>
-          </div>
-
-          {/* Social */}
-
-          <div className="social-buttons">
-
-            <button
-              type="button"
-              onClick={() => setAuthMessage("Google sign-in is not configured in this prototype.")}
-            >
-              <span className="google-icon">G</span>
-              Google
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setAuthMessage("Microsoft sign-in is not configured in this prototype.")}
-            >
-              <span className="microsoft-icon">
-                ▦
-              </span>
-              Microsoft
-            </button>
-
-          </div>
-
           <p className="terms-text">
-            Accounts are stored on this backend; scans and recovery use sample data only.
+            Sign in with your ForensiX email and password. New here? Choose Register above.
           </p>
 
         </section>
